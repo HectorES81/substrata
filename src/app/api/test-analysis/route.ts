@@ -8,7 +8,7 @@ type ResponseItem = {
   section: string
 }
 
-const SYSTEM = `You are analyzing personality questionnaire responses for a person using Substrata, a personality profiling platform. Write in second person ("you"). Be specific, honest, and personal — like a wise friend who read everything carefully, not a generated report. Name the actual patterns you see. Do not be vague or generic.`
+const SYSTEM = `You are analyzing personality questionnaire responses for Substrata, a self-knowledge platform. Write in second person ("you"). Be honest, specific, and concise. Do not restate the questions — synthesize patterns. For each insight, briefly note what answer pattern led to it (e.g. "The fact that you..."). Avoid clinical language. Do not hedge everything — when a pattern is clear, name it.`
 
 function buildPrompt(responses: ResponseItem[]): string {
   const headers: Record<string, string> = {
@@ -28,18 +28,20 @@ function buildPrompt(responses: ResponseItem[]): string {
     formatted += `Q: ${r.questionText}\nA: ${r.answerLabel}\n\n`
   }
 
-  return `The person answered 38 questions across three frameworks: Big Five personality traits, Attachment Theory (ECR-R), and Schwartz Values.
-
-Write an honest, specific personality analysis. Include both strengths and honest observations about blind spots or relationship challenges. Do not hedge everything — commit to what the pattern suggests.
-
-Use exactly these four section headers, each on its own line in all caps, with no extra symbols:
+  return `Analyze the following questionnaire responses. Write exactly four sections using these headers on their own line in all caps:
 
 CORE PERSONALITY
 HOW YOU ATTACH
 WHAT YOU VALUE
 IN RELATIONSHIPS
 
-Write 2–3 paragraphs per section. The final section should synthesize all three frameworks to describe how this person shows up in intimate relationships.
+Rules:
+- Each section: exactly 2 paragraphs. No more.
+- Don't restate answers verbatim. Synthesize into patterns.
+- For each key observation, briefly mention what answer pattern it's based on.
+- The final section synthesizes all three to describe how this person shows up in intimate relationships.
+- Be direct. If a pattern is strong, say so. Include at least one honest challenge or blind spot per section.
+- Total response should be under 600 words.
 
 Responses:
 ${formatted.trim()}`
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
 
   const stream = anthropic.messages.stream({
     model: 'claude-sonnet-4-6',
-    max_tokens: 2000,
+    max_tokens: 1400,
     system: SYSTEM,
     messages: [{ role: 'user', content: buildPrompt(responses) }],
   })
