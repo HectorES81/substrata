@@ -40,7 +40,6 @@ function calculateScores(answers: Answer[]): Scores {
   const by: Record<string, number> = {}
   for (const a of answers) by[a.questionId] = a.value
   const g = (id: string) => by[id] ?? 0
-
   return {
     openness:              avg(g('p1'), g('p2')),
     conscientiousness:     avg(g('p3'), g('p4'), g('p5')),
@@ -53,7 +52,6 @@ function calculateScores(answers: Answer[]): Scores {
 }
 
 function detectInconsistency(answers: Answer[]): boolean {
-  // Longstring: 5+ consecutive identical values
   let streak = 1
   for (let i = 1; i < answers.length; i++) {
     if (answers[i].value === answers[i - 1].value) {
@@ -62,8 +60,7 @@ function detectInconsistency(answers: Answer[]): boolean {
       streak = 1
     }
   }
-  // Section with zero variance (all identical)
-  const sections = ['personality', 'attachment', 'values']
+  const sections = Array.from(new Set(answers.map(a => a.section)))
   for (const section of sections) {
     const vals = answers.filter(a => a.section === section).map(a => a.value)
     if (vals.length >= 4 && new Set(vals).size === 1) return true
@@ -71,14 +68,20 @@ function detectInconsistency(answers: Answer[]): boolean {
   return false
 }
 
-const SECTION_HEADERS = ['CORE PERSONALITY', 'HOW YOU ATTACH', 'WHAT YOU VALUE', 'IN RELATIONSHIPS']
+// Detect analysis section headers: all-caps, 2+ words, 8+ chars
+function isAnalysisHeader(line: string): boolean {
+  const t = line.trim()
+  if (t.length < 8) return false
+  if (!/^[A-Z][A-Z\s&]+$/.test(t)) return false
+  return t.split(/\s+/).length >= 2
+}
 
 function parseAnalysis(text: string) {
   const result: { header: string; content: string }[] = []
   let currentHeader = ''
   let currentContent = ''
   for (const line of text.split('\n')) {
-    if (SECTION_HEADERS.includes(line.trim())) {
+    if (isAnalysisHeader(line)) {
       if (currentHeader) result.push({ header: currentHeader, content: currentContent.trim() })
       currentHeader = line.trim()
       currentContent = ''
@@ -116,11 +119,33 @@ const DIMENSION_BARS = [
   { key: 'attachment_avoidance', label: 'Attachment Avoidance', low: 'Seeking',       high: 'Avoidant',    group: 'Attachment', qIds: ['a6','a7','a8','a9','a10','a13'] },
 ] as const
 
+// Color accent per analysis section header
 const SECTION_ACCENT: Record<string, string> = {
-  'CORE PERSONALITY': '#4A4580',
-  'HOW YOU ATTACH':   '#C4714A',
-  'WHAT YOU VALUE':   '#5A8A5A',
-  'IN RELATIONSHIPS': '#9B9693',
+  // Days 1–3
+  'CORE PERSONALITY':             '#4A4580',
+  'HOW YOU ATTACH':               '#C4714A',
+  'WHAT YOU VALUE':               '#5A8A5A',
+  'IN RELATIONSHIPS':             '#9B9693',
+  // Day 4 – Conflict
+  'HOW YOU HANDLE CONFLICT':      '#A85C5C',
+  'UNDER PRESSURE':               '#C4714A',
+  'REPAIR AND RECONNECTION':      '#5A8A7A',
+  // Day 5 – EQ
+  'YOUR EMOTIONAL WORLD':         '#7A5A9A',
+  'EMOTIONAL REGULATION':         '#5A6A8A',
+  'EMPATHY AND ATTUNEMENT':       '#9A7A5A',
+  // Day 6 – Life
+  'HOW YOU STRUCTURE YOUR LIFE':  '#5A6A7A',
+  'WORK AND IDENTITY':            '#7A8A5A',
+  'YOUR AMBITIONS':               '#4A7A6A',
+  // Day 7 – Physical
+  'YOUR BODY AND HEALTH':         '#5A8A6A',
+  'PHYSICAL PATTERNS':            '#6A8A5A',
+  'EMBODIMENT':                   '#8A7A5A',
+  // Day 8 – Moral
+  'YOUR MORAL FOUNDATIONS':       '#8A5A5A',
+  'WHAT YOU STAND FOR':           '#5A7A5A',
+  'ETHICS IN RELATIONSHIP':       '#5A6A7A',
 }
 
 // ── Score bars ─────────────────────────────────────────────────────────────
@@ -129,7 +154,7 @@ function ScoreBars({ scores, answeredIds }: { scores: Scores; answeredIds: Set<s
   return (
     <div className="mb-10 p-5 rounded-2xl" style={{ background: 'var(--charcoal)' }}>
       <p className="text-xs font-semibold tracking-widest uppercase mb-5" style={{ color: 'var(--stone)' }}>
-        Dimension Summary
+        Personality Dimensions
       </p>
       <div className="space-y-5">
         {DIMENSION_BARS.map(d => {
@@ -137,7 +162,7 @@ function ScoreBars({ scores, answeredIds }: { scores: Scores; answeredIds: Set<s
           const hasData = d.qIds.some(id => answeredIds.has(id))
           const pct = hasData ? Math.round(((score - 1) / 4) * 100) : 0
           return (
-            <div key={d.key} style={{ opacity: hasData ? 1 : 0.35 }}>
+            <div key={d.key} style={{ opacity: hasData ? 1 : 0.3 }}>
               <div className="flex justify-between items-baseline mb-1.5">
                 <span className="text-xs font-medium" style={{ color: 'var(--parchment)' }}>{d.label}</span>
                 <span className="text-xs" style={{ color: 'var(--stone)' }}>
@@ -158,7 +183,7 @@ function ScoreBars({ scores, answeredIds }: { scores: Scores; answeredIds: Set<s
         })}
       </div>
       <p className="text-xs mt-5 leading-relaxed" style={{ color: 'var(--stone)' }}>
-        Bars marked "pending" will fill in as you complete more sessions. These are directional estimates, not clinical assessments.
+        These bars reflect Big Five and Attachment only (Days 1–3). Other sections contribute to your written analysis.
       </p>
     </div>
   )
@@ -167,21 +192,12 @@ function ScoreBars({ scores, answeredIds }: { scores: Scores; answeredIds: Set<s
 // ── Results screen ─────────────────────────────────────────────────────────
 
 function ResultsScreen({
-  analysis,
-  scores,
-  answeredIds,
-  dayNumber,
-  isNewResult,
+  analysis, scores, answeredIds, dayNumber, isNewResult,
 }: {
-  analysis: string
-  scores: Scores
-  answeredIds: Set<string>
-  dayNumber: number
-  isNewResult: boolean
+  analysis: string; scores: Scores; answeredIds: Set<string>; dayNumber: number; isNewResult: boolean
 }) {
   const sections = parseAnalysis(analysis)
   const [bookmarked, setBookmarked] = useState<Set<string>>(new Set())
-  const hasNextDay = dayNumber < 3
 
   return (
     <div className="min-h-screen px-6 py-12" style={{ background: 'var(--obsidian)' }}>
@@ -195,7 +211,7 @@ function ResultsScreen({
           </Link>
         </div>
         <h1 className="text-2xl font-semibold mb-10" style={{ color: 'var(--parchment)' }}>
-          {isNewResult ? 'Here\'s what your answers reveal.' : 'Your Day ' + dayNumber + ' results.'}
+          {isNewResult ? 'Here\'s what your answers reveal.' : `Your Day ${dayNumber} results.`}
         </h1>
 
         <ScoreBars scores={scores} answeredIds={answeredIds} />
@@ -204,13 +220,14 @@ function ResultsScreen({
           <p className="text-base leading-relaxed" style={{ color: 'var(--parchment)', whiteSpace: 'pre-wrap' }}>
             {analysis}
           </p>
-        ) : (
-          sections.map(({ header, content }) => (
+        ) : sections.map(({ header, content }) => {
+          const accent = SECTION_ACCENT[header] ?? 'var(--indigo)'
+          return (
             <div key={header} className="mb-10">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-1 h-5 rounded-full" style={{ background: SECTION_ACCENT[header] ?? 'var(--indigo)' }} />
-                  <h2 className="text-xs font-semibold tracking-widest uppercase" style={{ color: SECTION_ACCENT[header] ?? 'var(--indigo)' }}>
+                  <div className="w-1 h-5 rounded-full" style={{ background: accent }} />
+                  <h2 className="text-xs font-semibold tracking-widest uppercase" style={{ color: accent }}>
                     {header}
                   </h2>
                 </div>
@@ -233,11 +250,11 @@ function ResultsScreen({
               )}
               {content.split('\n\n').filter(p => p.trim()).map((para, i) => renderParagraph(para.trim(), i))}
             </div>
-          ))
-        )}
+          )
+        })}
 
-        {/* Science references */}
-        {analysis.length > 100 && (
+        {/* Learn more — science links */}
+        {analysis.length > 100 && dayNumber <= 3 && (
           <div className="mt-6 mb-10 pt-8 border-t" style={{ borderColor: '#2E2B27' }}>
             <p className="text-xs font-semibold tracking-widest uppercase mb-4" style={{ color: 'var(--stone)' }}>
               The Science Behind This
@@ -249,8 +266,7 @@ function ResultsScreen({
                 { label: "Schwartz's Theory of Basic Values", url: 'https://en.wikipedia.org/wiki/Theory_of_basic_human_values', note: 'The framework behind the Values section' },
               ].map(r => (
                 <a key={r.url} href={r.url} target="_blank" rel="noopener noreferrer"
-                  className="block p-4 rounded-xl"
-                  style={{ background: 'var(--charcoal)', textDecoration: 'none' }}>
+                  className="block p-4 rounded-xl" style={{ background: 'var(--charcoal)', textDecoration: 'none' }}>
                   <p className="text-sm font-medium mb-0.5" style={{ color: 'var(--indigo)' }}>{r.label}</p>
                   <p className="text-xs" style={{ color: 'var(--stone)' }}>{r.note}</p>
                 </a>
@@ -258,27 +274,48 @@ function ResultsScreen({
             </div>
           </div>
         )}
+        {analysis.length > 100 && dayNumber === 4 && (
+          <div className="mt-6 mb-10 pt-8 border-t" style={{ borderColor: '#2E2B27' }}>
+            <p className="text-xs font-semibold tracking-widest uppercase mb-4" style={{ color: 'var(--stone)' }}>
+              The Science Behind This
+            </p>
+            <a href="https://en.wikipedia.org/wiki/John_Gottman" target="_blank" rel="noopener noreferrer"
+              className="block p-4 rounded-xl" style={{ background: 'var(--charcoal)', textDecoration: 'none' }}>
+              <p className="text-sm font-medium mb-0.5" style={{ color: '#A85C5C' }}>Gottman's Four Horsemen</p>
+              <p className="text-xs" style={{ color: 'var(--stone)' }}>The research framework behind conflict patterns and repair</p>
+            </a>
+          </div>
+        )}
+        {analysis.length > 100 && dayNumber === 8 && (
+          <div className="mt-6 mb-10 pt-8 border-t" style={{ borderColor: '#2E2B27' }}>
+            <p className="text-xs font-semibold tracking-widest uppercase mb-4" style={{ color: 'var(--stone)' }}>
+              The Science Behind This
+            </p>
+            <a href="https://en.wikipedia.org/wiki/Moral_foundations_theory" target="_blank" rel="noopener noreferrer"
+              className="block p-4 rounded-xl" style={{ background: 'var(--charcoal)', textDecoration: 'none' }}>
+              <p className="text-sm font-medium mb-0.5" style={{ color: '#8A5A5A' }}>Moral Foundations Theory</p>
+              <p className="text-xs" style={{ color: 'var(--stone)' }}>Haidt's framework for the six foundations of morality</p>
+            </a>
+          </div>
+        )}
 
         {/* Next day CTA */}
-        {hasNextDay && (
+        {dayNumber < 8 && (
           <div className="mt-8 pt-8 border-t" style={{ borderColor: '#2E2B27' }}>
             <p className="text-sm mb-4" style={{ color: 'var(--parchment)' }}>
-              Day {dayNumber + 1} adds {dayNumber === 1 ? 13 : 10} more questions, deepening the picture — without repeating what Day {dayNumber} already found.
+              Day {dayNumber + 1} explores a new dimension without repeating what Day {dayNumber} already found.
             </p>
-            <Link
-              href={`/test/day/${dayNumber + 1}`}
+            <Link href={`/test/day/${dayNumber + 1}`}
               className="block w-full py-3 rounded-xl text-sm font-semibold text-center"
-              style={{ background: 'var(--indigo)', color: '#fff', textDecoration: 'none' }}
-            >
+              style={{ background: 'var(--indigo)', color: '#fff', textDecoration: 'none' }}>
               Continue to Day {dayNumber + 1} →
             </Link>
           </div>
         )}
-
-        {!hasNextDay && (
+        {dayNumber === 8 && (
           <div className="mt-8 pt-8 border-t" style={{ borderColor: '#2E2B27' }}>
             <p className="text-sm leading-relaxed" style={{ color: 'var(--stone)' }}>
-              You've completed the three-session baseline. These 3 sessions cover personality, attachment, and values — 3 of 8 planned dimensions. More sections arrive as Substrata grows.
+              You've completed all 8 sessions — 96 questions across every major dimension. This is your baseline profile. As Substrata grows, more question versions and sections will deepen the picture further.
             </p>
           </div>
         )}
@@ -302,9 +339,9 @@ function AnalyzingScreen({ dayNumber }: { dayNumber: number }) {
         <div className="w-8 h-8 rounded-full border-2 animate-spin mx-auto mb-6"
           style={{ borderColor: 'var(--indigo)', borderTopColor: 'transparent' }} />
         <p className="text-base mb-2" style={{ color: 'var(--parchment)' }}>
-          {dayNumber === 1 ? 'Analyzing your responses…' : `Building on what Day ${dayNumber - 1} found…`}
+          {dayNumber === 1 ? 'Analyzing your responses…' : `Building on Session ${dayNumber - 1}…`}
         </p>
-        <p className="text-sm" style={{ color: 'var(--stone)' }}>This takes about 15 seconds.</p>
+        <p className="text-sm" style={{ color: 'var(--stone)' }}>About 15 seconds.</p>
       </div>
     </div>
   )
@@ -316,14 +353,18 @@ export default function DayQuestionnaire({
   dayNumber,
   userId,
   questions,
+  analysisSections,
   existingReport,
   existingScores,
+  allAnsweredIds,
 }: {
   dayNumber: number
   userId: string
   questions: Question[]
+  analysisSections: string[]
   existingReport: string | null
   existingScores: Record<string, number> | null
+  allAnsweredIds: string[]
 }) {
   const supabase = useMemo(() => createClient(), [])
 
@@ -338,11 +379,8 @@ export default function DayQuestionnaire({
       agreeableness: 0, neuroticism: 0, attachment_anxiety: 0, attachment_avoidance: 0,
     }
   )
-  // Tracks all answered question IDs across all sessions (for cumulative score bars)
   const [cumulativeIds, setCumulativeIds] = useState<Set<string>>(
-    existingReport
-      ? new Set(questions.map(q => q.id))
-      : new Set<string>()
+    existingReport ? new Set(allAnsweredIds) : new Set<string>()
   )
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -378,10 +416,10 @@ export default function DayQuestionnaire({
       .single()
 
     if (sessionErr || !session) {
-      setSaveError('Could not save session. Your analysis will still run, but results won\'t be stored.')
+      setSaveError('Could not save session. Analysis will run but results won\'t be stored.')
     }
 
-    // 2. Save responses (ignore if session save failed)
+    // 2. Save question responses
     if (session) {
       await supabase.schema('substrata').from('question_responses').insert(
         finalAnswers.map(a => ({
@@ -397,7 +435,7 @@ export default function DayQuestionnaire({
       )
     }
 
-    // 3. Fetch ALL responses across all sessions (for cumulative scores)
+    // 3. Fetch all previous responses (for cumulative scores + tracked IDs)
     const { data: allPrevResponses } = await supabase
       .schema('substrata')
       .from('question_responses')
@@ -405,7 +443,6 @@ export default function DayQuestionnaire({
       .eq('user_id', userId)
 
     const allAnswersForScoring: Answer[] = [
-      // Previous sessions from DB (excludes just-inserted if session save failed)
       ...(allPrevResponses ?? [])
         .filter(r => !finalAnswers.find(a => a.questionId === r.question_id))
         .map(r => ({
@@ -431,7 +468,7 @@ export default function DayQuestionnaire({
       .neq('day_number', dayNumber)
       .order('day_number')
 
-    // 5. Stream analysis from Claude
+    // 5. Stream analysis
     setPhase('analyzing')
 
     const responses = finalAnswers.map(a => ({
@@ -447,6 +484,7 @@ export default function DayQuestionnaire({
         body: JSON.stringify({
           responses,
           dayNumber,
+          analysisSections,
           previousReports: prevReports?.map(r => ({ day: r.day_number, text: r.report_text })),
         }),
       })
@@ -464,7 +502,7 @@ export default function DayQuestionnaire({
         setAnalysis(fullText)
       }
 
-      // 6. Save report to DB
+      // 6. Save report
       if (session) {
         await supabase.schema('substrata').from('session_reports').insert({
           session_id: session.id,
@@ -478,11 +516,10 @@ export default function DayQuestionnaire({
       setError('Something went wrong. Please try again.')
       setPhase('questions')
     }
-  }, [supabase, userId, dayNumber])
+  }, [supabase, userId, dayNumber, analysisSections])
 
   const handleContinue = useCallback(() => {
     if (!selectedOption || !currentQuestion) return
-
     const answer: Answer = {
       questionId: currentQuestion.id,
       questionText: currentQuestion.text,
@@ -491,11 +528,9 @@ export default function DayQuestionnaire({
       section: currentQuestion.section,
       dimension: currentQuestion.dimension,
     }
-
     const newAnswers = [...answers, answer]
     setAnswers(newAnswers)
     setSelectedOption(null)
-
     if (currentIdx === questions.length - 1) {
       submitAnalysis(newAnswers)
     } else {
@@ -516,29 +551,20 @@ export default function DayQuestionnaire({
   }, [currentIdx, answers, questions])
 
   if (phase === 'analyzing') return <AnalyzingScreen dayNumber={dayNumber} />
-
   if (phase === 'results') {
-    return (
-      <ResultsScreen
-        analysis={analysis}
-        scores={scores}
-        answeredIds={answeredIds}
-        dayNumber={dayNumber}
-        isNewResult={!existingReport}
-      />
-    )
+    return <ResultsScreen
+      analysis={analysis} scores={scores} answeredIds={answeredIds}
+      dayNumber={dayNumber} isNewResult={!existingReport}
+    />
   }
-
   if (!currentQuestion) return null
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--obsidian)' }}>
-      {/* Progress bar */}
       <div className="w-full h-0.5" style={{ background: '#2E2B27' }}>
         <div className="h-full transition-all duration-500" style={{ width: `${progress}%`, background: 'var(--indigo)' }} />
       </div>
 
-      {/* Header */}
       <div className="px-6 pt-5 flex items-center justify-between">
         <span className="text-xs font-semibold tracking-widest uppercase"
           style={{ color: isSectionStart ? 'var(--indigo)' : 'var(--stone)' }}>
@@ -548,13 +574,10 @@ export default function DayQuestionnaire({
           {currentIdx + 1} / {questions.length}
         </span>
       </div>
-
-      {/* Day label */}
       <div className="px-6 pt-1">
         <span className="text-xs" style={{ color: 'var(--stone)' }}>Day {dayNumber}</span>
       </div>
 
-      {/* Question */}
       <div className="flex-1 px-6 pt-8 pb-4 flex flex-col">
         <p className="text-xl font-medium leading-snug mb-8" style={{ color: 'var(--parchment)', maxWidth: 480 }}>
           {currentQuestion.text}
@@ -564,19 +587,14 @@ export default function DayQuestionnaire({
           {currentQuestion.options.map(option => {
             const isSelected = selectedOption?.label === option.label
             return (
-              <button
-                key={option.label}
-                onClick={() => setSelectedOption(option)}
+              <button key={option.label} onClick={() => setSelectedOption(option)}
                 className="w-full text-left rounded-xl font-medium text-sm transition-colors duration-150"
                 style={{
                   background: isSelected ? 'var(--indigo)' : 'var(--charcoal)',
                   color: isSelected ? '#fff' : 'var(--parchment)',
                   border: `1.5px solid ${isSelected ? 'var(--indigo)' : '#3D3A36'}`,
-                  padding: '14px 20px',
-                  minHeight: 56,
-                  cursor: 'pointer',
-                }}
-              >
+                  padding: '14px 20px', minHeight: 56, cursor: 'pointer',
+                }}>
                 {option.label}
               </button>
             )
@@ -584,36 +602,28 @@ export default function DayQuestionnaire({
         </div>
 
         {error && <p className="mt-5 text-sm" style={{ color: 'var(--terracotta)' }}>{error}</p>}
-        {saveError && (
-          <p className="mt-3 text-xs" style={{ color: 'var(--stone)' }}>{saveError}</p>
-        )}
+        {saveError && <p className="mt-3 text-xs" style={{ color: 'var(--stone)' }}>{saveError}</p>}
       </div>
 
-      {/* Navigation */}
       <div className="px-6 pb-8 pt-2 flex items-center justify-between gap-4">
-        <button
-          onClick={handleBack}
-          disabled={currentIdx === 0}
+        <button onClick={handleBack} disabled={currentIdx === 0}
           style={{
-            background: 'none', border: 'none', cursor: currentIdx === 0 ? 'default' : 'pointer',
-            color: currentIdx === 0 ? 'transparent' : 'var(--stone)', fontSize: 14, padding: '8px 0',
-          }}
-        >
+            background: 'none', border: 'none',
+            cursor: currentIdx === 0 ? 'default' : 'pointer',
+            color: currentIdx === 0 ? 'transparent' : 'var(--stone)',
+            fontSize: 14, padding: '8px 0',
+          }}>
           ← Back
         </button>
-        <button
-          onClick={handleContinue}
-          disabled={!selectedOption}
+        <button onClick={handleContinue} disabled={!selectedOption}
           className="flex-1 py-3 rounded-xl font-semibold text-sm"
           style={{
             background: selectedOption ? 'var(--indigo)' : '#2E2B27',
             color: selectedOption ? '#fff' : 'var(--stone)',
             border: 'none',
             cursor: selectedOption ? 'pointer' : 'not-allowed',
-            maxWidth: 240,
-            marginLeft: 'auto',
-          }}
-        >
+            maxWidth: 240, marginLeft: 'auto',
+          }}>
           {currentIdx === questions.length - 1 ? 'See results →' : 'Continue →'}
         </button>
       </div>

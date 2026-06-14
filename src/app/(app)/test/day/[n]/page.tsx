@@ -1,10 +1,10 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { QUESTIONS, DAY_QUESTIONS } from '../../questions'
+import { QUESTIONS, DAY_QUESTIONS, DAY_ANALYSIS_HEADERS } from '../../questions'
 import DayQuestionnaire from './day-questionnaire'
 
 const ALLOWED_EMAIL = 'hect0rchicas@hotmail.com'
-const TOTAL_DAYS = 3
+const TOTAL_DAYS = 8
 
 export default async function TestDayPage({ params }: { params: { n: string } }) {
   const dayNumber = parseInt(params.n, 10)
@@ -14,7 +14,7 @@ export default async function TestDayPage({ params }: { params: { n: string } })
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || user.email !== ALLOWED_EMAIL) redirect('/dashboard')
 
-  // Check if previous day is complete (for days 2+)
+  // Check previous day is complete before unlocking this one
   if (dayNumber > 1) {
     const { data: prevSession } = await supabase
       .schema('substrata')
@@ -36,30 +36,44 @@ export default async function TestDayPage({ params }: { params: { n: string } })
     .eq('day_number', dayNumber)
     .maybeSingle()
 
-  // If completed, fetch the saved report
+  // If completed, fetch saved report and all cumulative answered IDs
   let existingReport: string | null = null
   let existingScores: Record<string, number> | null = null
+  let allAnsweredIds: string[] = []
+
   if (session?.completed_at) {
-    const { data: report } = await supabase
-      .schema('substrata')
-      .from('session_reports')
-      .select('report_text, scores')
-      .eq('session_id', session.id)
-      .maybeSingle()
-    existingReport = report?.report_text ?? null
-    existingScores = report?.scores ?? null
+    const [reportRes, answeredRes] = await Promise.all([
+      supabase
+        .schema('substrata')
+        .from('session_reports')
+        .select('report_text, scores')
+        .eq('session_id', session.id)
+        .maybeSingle(),
+      supabase
+        .schema('substrata')
+        .from('question_responses')
+        .select('question_id')
+        .eq('user_id', user.id),
+    ])
+
+    existingReport = reportRes.data?.report_text ?? null
+    existingScores = reportRes.data?.scores ?? null
+    allAnsweredIds = (answeredRes.data ?? []).map((r: { question_id: string }) => r.question_id)
   }
 
   const dayQuestionIds = DAY_QUESTIONS[dayNumber]
   const dayQuestions = QUESTIONS.filter(q => dayQuestionIds.includes(q.id))
+  const analysisSections = DAY_ANALYSIS_HEADERS[dayNumber]
 
   return (
     <DayQuestionnaire
       dayNumber={dayNumber}
       userId={user.id}
       questions={dayQuestions}
+      analysisSections={analysisSections}
       existingReport={existingReport}
       existingScores={existingScores}
+      allAnsweredIds={allAnsweredIds}
     />
   )
 }

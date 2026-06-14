@@ -134,16 +134,17 @@ export default async function TestHubPage() {
             />
           </div>
           <p className="text-xs mt-2" style={{ color: 'var(--stone)' }}>
-            {confidence === 0 && 'Complete Day 1 to begin building your profile.'}
-            {confidence > 0 && confidence < 55 && 'Day 2 will unlock community features at 50%.'}
-            {confidence >= 55 && confidence < 75 && 'Complete Day 3 to reach your baseline profile.'}
-            {confidence >= 75 && 'Baseline complete. More sections coming soon.'}
+            {confidence === 0 && 'Complete Day 1 to begin.'}
+            {confidence > 0 && confidence < 30 && 'Days 1–3 establish your personality foundation.'}
+            {confidence >= 30 && confidence < 55 && 'Community features unlock at 55% (Day 5).'}
+            {confidence >= 55 && confidence < 80 && 'Keep going — Day 8 completes your baseline.'}
+            {confidence >= 80 && 'Baseline complete. Full profile ready.'}
           </p>
         </div>
 
         {/* Day cards */}
         <div className="space-y-4">
-          {[1, 2, 3].map(day => (
+          {[1, 2, 3, 4, 5, 6, 7, 8].map(day => (
             <DayCard
               key={day}
               dayNumber={day}
@@ -154,8 +155,7 @@ export default async function TestHubPage() {
         </div>
 
         <p className="mt-8 text-xs text-center leading-relaxed" style={{ color: 'var(--stone)' }}>
-          These 3 sessions cover personality, attachment, and values — 3 of 8 planned sections.
-          More dimensions arrive as Substrata grows.
+          96 questions across 8 sections — personality, attachment, values, conflict, emotional intelligence, life architecture, physical health, and moral foundations.
         </p>
       </div>
     </div>
