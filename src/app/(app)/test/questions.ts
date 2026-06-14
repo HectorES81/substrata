@@ -39,6 +39,24 @@ const importance: Option[] = [
   { label: "Essential", value: 5 },
 ]
 
+// Day allocations: which question IDs to show each day
+// Day 1: 5 per section (15 total) — intro to all three areas
+// Day 2: 4-5 per section (13 total) — deepening patterns
+// Day 3: 3-4 per section (10 total) — completing the picture
+export const DAY_QUESTIONS: Record<number, string[]> = {
+  1: ['p1','p2','p3','p4','p5',  'a1','a2','a3','a4','a5',  'v1','v2','v3','v4','v5'],
+  2: ['p6','p7','p8','p9',       'a6','a7','a8','a9','a10', 'v6','v7','v8','v9'],
+  3: ['p10','p11','p12','p13',   'a11','a12','a13',          'v10','v11','v12'],
+}
+
+export const DAY_LABELS: Record<number, { title: string; subtitle: string; count: number }> = {
+  1: { title: 'First Layer',      subtitle: 'Core Personality · Attachment · Values', count: 15 },
+  2: { title: 'Deeper Patterns',  subtitle: 'Core Personality · Attachment · Values', count: 13 },
+  3: { title: 'Completing the Map', subtitle: 'Core Personality · Attachment · Values', count: 10 },
+}
+
+export const CONFIDENCE_BY_DAY: Record<number, number> = { 1: 30, 2: 55, 3: 75 }
+
 export const QUESTIONS: Question[] = [
 
   // ── CORE PERSONALITY (Big Five) — 13 questions ─────────────────────────────
