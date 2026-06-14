@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --obsidian: #1A1714;
+  --charcoal: #2E2B27;
+  --stone: #6B6460;
+  --sand: #9B9693;
+  --parchment: #F5F0EB;
+  --indigo: #4A4580;
+  --terracotta: #C4714A;
+}
+
+body {
+  background-color: var(--obsidian);
+  color: var(--parchment);
+}
