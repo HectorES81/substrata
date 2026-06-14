@@ -1,11 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-
-type CookieToSet = { name: string; value: string; options?: {
-  domain?: string; expires?: Date; httpOnly?: boolean
-  maxAge?: number; path?: string; secure?: boolean
-  sameSite?: 'strict' | 'lax' | 'none' | boolean
-} }
+import type { CookieToSet } from '@/lib/supabase/cookie-types'
 
 export function createClient() {
   const cookieStore = cookies()
