@@ -197,24 +197,42 @@ type PreviousReport = {
   text: string
 }
 
+type LanguageMode = 'plain' | 'direct' | 'clinical'
+
+const LANGUAGE_INSTRUCTIONS: Record<LanguageMode, string> = {
+  plain:    'Write in plain, everyday language. No technical terms, no academic names. Use short sentences. Anyone should understand this immediately.',
+  direct:   'Write clearly and precisely. Name frameworks and patterns when relevant but always explain them in plain terms alongside.',
+  clinical: 'Use the correct academic and clinical terminology throughout. Name frameworks, sub-scales, and theoretical constructs precisely. A psychologist or researcher should find this technically accurate.',
+}
+
 function buildFormatRules(analysisSections: string[]): string {
   return `Write exactly ${analysisSections.length} sections using these exact headers, each on its own line in ALL CAPS:
 
 ${analysisSections.join('\n')}
 
 For each section:
-1. First line: A single bold sentence (wrap in **double asterisks**) that names the defining trait or pattern. Be direct and specific.
-2. Then exactly 2 paragraphs that expand on this. Deeper context, tensions, blind spots. At least one honest challenge per section. Do NOT restate the headline.
+1. First line: A single bold sentence (wrap in **double asterisks**) naming the defining pattern. Sharp and specific — no hedging.
+2. Then exactly 2 short paragraphs. Each paragraph is 2–3 sentences maximum. Name tensions, blind spots, or consequences. Do NOT restate the headline or describe what the questions asked. Draw conclusions from the pattern, not from the answers.
 
-Total response: under 700 words.`
+Critical rules:
+- Never describe what the user answered. Interpret what it reveals.
+- Never restate or paraphrase question content.
+- One honest challenge per section minimum.
+- Total response: under 400 words across all sections.`
 }
 
 function buildPrompt(
   responses: ResponseItem[],
   dayNumber: number,
   analysisSections: string[],
-  previousReports?: PreviousReport[]
+  previousReports?: PreviousReport[],
+  languageMode: LanguageMode = 'direct',
+  userContext?: string | null
 ): string {
+  const langInstruction = `\nLANGUAGE MODE: ${LANGUAGE_INSTRUCTIONS[languageMode]}\n`
+  const contextBlock = userContext
+    ? `\nUSER CONTEXT (shapes framing — do not state these facts back to the user, just let them inform your angle):\n${userContext}\n`
+    : ''
   const sectionHeaderMap: Record<string, string> = {
     personality: '--- CORE PERSONALITY ---',
     attachment:  '--- ATTACHMENT STYLE ---',
@@ -241,7 +259,7 @@ function buildPrompt(
   // ── Day 1: pure discovery ────────────────────────────────────────────
   if (!previousReports || previousReports.length === 0 || dayNumber === 1) {
     return `Analyze these Session 1 responses. This is the first data point — pure discovery, no prior context.
-
+${langInstruction}${contextBlock}
 ${formatRules}
 
 Responses:
@@ -254,7 +272,7 @@ ${formatted.trim()}`
     .join('\n')
 
   return `This is Session ${dayNumber} of an ongoing personality profile. The user has read all previous reports.
-
+${langInstruction}${contextBlock}
 Previous session reports:
 ${prevContext}
 
@@ -274,20 +292,22 @@ ${formatted.trim()}`
 const DEFAULT_SECTIONS = ['CORE PERSONALITY', 'HOW YOU ATTACH', 'WHAT YOU VALUE', 'IN RELATIONSHIPS']
 
 export async function POST(request: Request) {
-  const { responses, dayNumber = 1, analysisSections, previousReports } = await request.json() as {
+  const { responses, dayNumber = 1, analysisSections, previousReports, languageMode, userContext } = await request.json() as {
     responses: ResponseItem[]
     dayNumber?: number
     analysisSections?: string[]
     previousReports?: PreviousReport[]
+    languageMode?: LanguageMode
+    userContext?: string | null
   }
 
   const sections = analysisSections ?? DEFAULT_SECTIONS
 
   const stream = anthropic.messages.stream({
     model: 'claude-sonnet-4-6',
-    max_tokens: 1500,
+    max_tokens: 900,
     system: SYSTEM,
-    messages: [{ role: 'user', content: buildPrompt(responses, dayNumber, sections, previousReports) }],
+    messages: [{ role: 'user', content: buildPrompt(responses, dayNumber, sections, previousReports, languageMode ?? 'direct', userContext) }],
   })
 
   const readable = new ReadableStream({

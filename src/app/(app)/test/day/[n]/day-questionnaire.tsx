@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { Question, Option } from '../../questions'
@@ -8,6 +8,13 @@ import type { Question, Option } from '../../questions'
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type Phase = 'questions' | 'analyzing' | 'results'
+type LanguageMode = 'plain' | 'direct' | 'clinical'
+
+const LANGUAGE_LABELS: Record<LanguageMode, { label: string; desc: string }> = {
+  plain:    { label: 'Plain',    desc: 'Everyday language, no jargon' },
+  direct:   { label: 'Direct',   desc: 'Clear and precise' },
+  clinical: { label: 'Clinical', desc: 'Academic terminology' },
+}
 
 type Answer = {
   questionId: string
@@ -110,13 +117,13 @@ function renderParagraph(text: string, key: number) {
 // ── Static data ────────────────────────────────────────────────────────────
 
 const DIMENSION_BARS = [
-  { key: 'openness',             label: 'Openness',             low: 'Conventional',  high: 'Open',        group: 'Big Five',   qIds: ['p1','p2'] },
-  { key: 'conscientiousness',    label: 'Conscientiousness',    low: 'Spontaneous',   high: 'Structured',  group: 'Big Five',   qIds: ['p3','p4','p5'] },
-  { key: 'extraversion',         label: 'Extraversion',         low: 'Introverted',   high: 'Extraverted', group: 'Big Five',   qIds: ['p6','p7'] },
-  { key: 'agreeableness',        label: 'Harmony',              low: 'Direct',        high: 'Harmonious',  group: 'Big Five',   qIds: ['p8','p9'] },
-  { key: 'neuroticism',          label: 'Emotional Reactivity', low: 'Stable',        high: 'Reactive',    group: 'Big Five',   qIds: ['p10','p11','p12'] },
-  { key: 'attachment_anxiety',   label: 'Attachment Anxiety',   low: 'Low',           high: 'High',        group: 'Attachment', qIds: ['a1','a2','a3','a4','a5','a11'] },
-  { key: 'attachment_avoidance', label: 'Attachment Avoidance', low: 'Seeking',       high: 'Avoidant',    group: 'Attachment', qIds: ['a6','a7','a8','a9','a10','a13'] },
+  { key: 'openness',             label: 'Openness',             low: 'Conventional',  high: 'Open',        group: 'Big Five',   qIds: ['p1','p2'],                              colorLow: '#6B5E8A', colorHigh: '#4A4580' },
+  { key: 'conscientiousness',    label: 'Conscientiousness',    low: 'Spontaneous',   high: 'Structured',  group: 'Big Five',   qIds: ['p3','p4','p5'],                         colorLow: '#7A6A5A', colorHigh: '#5A6A7A' },
+  { key: 'extraversion',         label: 'Extraversion',         low: 'Introverted',   high: 'Extraverted', group: 'Big Five',   qIds: ['p6','p7'],                              colorLow: '#5A7A6A', colorHigh: '#C4714A' },
+  { key: 'agreeableness',        label: 'Harmony',              low: 'Direct',        high: 'Harmonious',  group: 'Big Five',   qIds: ['p8','p9'],                              colorLow: '#8A5A5A', colorHigh: '#5A8A5A' },
+  { key: 'neuroticism',          label: 'Emotional Reactivity', low: 'Stable',        high: 'Reactive',    group: 'Big Five',   qIds: ['p10','p11','p12'],                      colorLow: '#5A8A6A', colorHigh: '#A85C5C' },
+  { key: 'attachment_anxiety',   label: 'Attachment Anxiety',   low: 'Secure',        high: 'Anxious',     group: 'Attachment', qIds: ['a1','a2','a3','a4','a5','a11'],         colorLow: '#5A8A6A', colorHigh: '#C4714A' },
+  { key: 'attachment_avoidance', label: 'Attachment Avoidance', low: 'Seeking',       high: 'Avoidant',    group: 'Attachment', qIds: ['a6','a7','a8','a9','a10','a13'],        colorLow: '#5A7A9A', colorHigh: '#8A5A7A' },
 ] as const
 
 // Color accent per analysis section header
@@ -153,17 +160,26 @@ const SECTION_ACCENT: Record<string, string> = {
 function ScoreBars({ scores, answeredIds }: { scores: Scores; answeredIds: Set<string> }) {
   return (
     <div className="mb-10 p-5 rounded-2xl" style={{ background: 'var(--charcoal)' }}>
-      <p className="text-xs font-semibold tracking-widest uppercase mb-5" style={{ color: 'var(--stone)' }}>
+      <p className="text-xs font-semibold tracking-widest uppercase mb-1" style={{ color: 'var(--stone)' }}>
         Personality Dimensions
       </p>
-      <div className="space-y-5">
+      <p className="text-xs mb-5 leading-relaxed" style={{ color: 'var(--stone)', opacity: 0.7 }}>
+        Marker position shows where you lean. Closer to either edge means stronger signal in that direction. Centre is neutral.
+      </p>
+      <div className="space-y-6">
         {DIMENSION_BARS.map(d => {
           const score = scores[d.key as keyof Scores]
           const hasData = d.qIds.some(id => answeredIds.has(id))
-          const pct = hasData ? Math.round(((score - 1) / 4) * 100) : 0
+          // Score 1–5 → 0–100%. Score 3 = neutral = 50% (centre).
+          const pct = hasData ? Math.round(((score - 1) / 4) * 100) : 50
+          // Marker colour tracks which end it's closer to
+          const markerColor = hasData
+            ? (pct < 50 ? d.colorLow : d.colorHigh)
+            : 'transparent'
+
           return (
-            <div key={d.key} style={{ opacity: hasData ? 1 : 0.3 }}>
-              <div className="flex justify-between items-baseline mb-1.5">
+            <div key={d.key} style={{ opacity: hasData ? 1 : 0.25 }}>
+              <div className="flex justify-between items-baseline mb-2">
                 <span className="text-xs font-medium" style={{ color: 'var(--parchment)' }}>{d.label}</span>
                 <span className="text-xs" style={{ color: 'var(--stone)' }}>
                   {hasData ? d.group : `${d.group} · pending`}
@@ -171,9 +187,26 @@ function ScoreBars({ scores, answeredIds }: { scores: Scores; answeredIds: Set<s
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs w-20 text-right shrink-0" style={{ color: 'var(--stone)' }}>{d.low}</span>
-                <div className="flex-1 h-1.5 rounded-full" style={{ background: '#3D3A36' }}>
+                {/* Gradient bar: full colour at edges, neutral at centre */}
+                <div className="flex-1 relative" style={{ height: 6 }}>
+                  <div className="absolute inset-0 rounded-full" style={{
+                    background: `linear-gradient(to right, ${d.colorLow}, rgba(61,58,54,0.3) 50%, ${d.colorHigh})`,
+                  }} />
+                  {/* Marker dot */}
                   {hasData && (
-                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'var(--indigo)' }} />
+                    <div style={{
+                      position: 'absolute',
+                      left: `${pct}%`,
+                      top: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      width: 14,
+                      height: 14,
+                      borderRadius: '50%',
+                      background: markerColor,
+                      border: '2.5px solid var(--obsidian)',
+                      boxShadow: `0 0 0 1.5px ${markerColor}`,
+                      transition: 'left 0.5s ease',
+                    }} />
                   )}
                 </div>
                 <span className="text-xs w-20 shrink-0" style={{ color: 'var(--stone)' }}>{d.high}</span>
@@ -182,9 +215,344 @@ function ScoreBars({ scores, answeredIds }: { scores: Scores; answeredIds: Set<s
           )
         })}
       </div>
-      <p className="text-xs mt-5 leading-relaxed" style={{ color: 'var(--stone)' }}>
-        These bars reflect Big Five and Attachment only (Days 1–3). Other sections contribute to your written analysis.
+      <p className="text-xs mt-6 leading-relaxed" style={{ color: 'var(--stone)', opacity: 0.6 }}>
+        Big Five and Attachment update as you answer. Other frameworks (conflict style, values, moral foundations) appear in the written analysis.
       </p>
+    </div>
+  )
+}
+
+// ── Section annotation (Add context) ──────────────────────────────────────
+
+function SectionAnnotation({
+  header, dayNumber, userId, supabase,
+}: {
+  header: string
+  dayNumber: number
+  userId: string
+  supabase: ReturnType<typeof createClient>
+}) {
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    supabase
+      .schema('substrata')
+      .from('section_annotations')
+      .select('annotation')
+      .eq('user_id', userId)
+      .eq('day_number', dayNumber)
+      .eq('section', header)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.annotation) {
+          setText(data.annotation)
+          setSaved(true)
+        }
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function handleSave() {
+    if (!text.trim()) return
+    setSaving(true)
+    await supabase
+      .schema('substrata')
+      .from('section_annotations')
+      .upsert(
+        { user_id: userId, day_number: dayNumber, section: header, annotation: text.trim(), updated_at: new Date().toISOString() },
+        { onConflict: 'user_id,day_number,section' }
+      )
+    setSaved(true)
+    setSaving(false)
+    setOpen(false)
+  }
+
+  return (
+    <div className="mt-4 mb-2">
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="text-xs px-3 py-1.5 rounded-lg"
+          style={{
+            background: saved ? '#1A2A1A' : '#1E1C2E',
+            color: saved ? '#5A9A5A' : 'var(--stone)',
+            border: `1px solid ${saved ? '#2E5A2E' : '#2E2A4E'}`,
+            cursor: 'pointer',
+          }}
+        >
+          {saved ? '✓ Context added' : '+ Add context'}
+        </button>
+      ) : (
+        <div className="p-4 rounded-xl" style={{ background: '#1E1C2E', border: '1px solid #2E2A4E' }}>
+          <p className="text-xs mb-2 leading-relaxed" style={{ color: 'var(--stone)' }}>
+            The AI misread something here? Add context — it will inform future sessions.
+          </p>
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="e.g. I answered that way because I got lucky — not by design. My situation is a net positive."
+            rows={3}
+            className="w-full text-sm rounded-lg px-3 py-2.5 mb-3 resize-none"
+            style={{
+              background: 'var(--charcoal)',
+              color: 'var(--parchment)',
+              border: '1px solid #3D3A36',
+              outline: 'none',
+            }}
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving || !text.trim()}
+              className="px-4 py-1.5 rounded-lg text-xs font-medium"
+              style={{
+                background: text.trim() ? 'var(--indigo)' : '#2E2B27',
+                color: text.trim() ? '#fff' : 'var(--stone)',
+                border: 'none', cursor: text.trim() ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              className="px-4 py-1.5 rounded-lg text-xs"
+              style={{ background: 'none', border: 'none', color: 'var(--stone)', cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Highlight system ───────────────────────────────────────────────────────
+
+type ActiveSelection = { text: string; rect: DOMRect; section: string }
+
+// Floating toolbar that appears on text selection
+function HighlightPopover({
+  selection, onSaveNote, onAddContext, onGoDeeper, onDismiss,
+}: {
+  selection: ActiveSelection
+  onSaveNote: () => void
+  onAddContext: () => void
+  onGoDeeper: () => void
+  onDismiss: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const { rect } = selection
+
+  const popoverW = 228
+  const left = Math.max(8, Math.min(
+    rect.left + rect.width / 2 - popoverW / 2,
+    (typeof window !== 'undefined' ? window.innerWidth : 400) - popoverW - 8
+  ))
+  const top = rect.top > 72 ? rect.top - 52 : rect.bottom + 10
+
+  // Dismiss on outside mousedown
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onDismiss()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onDismiss])
+
+  const btn = (label: string, onClick: () => void, accent?: string) => (
+    <button
+      onMouseDown={e => { e.preventDefault(); onClick() }}
+      style={{
+        background: 'none', border: 'none', cursor: 'pointer',
+        color: accent ?? 'var(--parchment)',
+        fontSize: 12, fontWeight: 500, padding: '6px 10px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <div ref={ref} style={{
+      position: 'fixed', top, left, zIndex: 1000,
+      background: '#0E0C1A',
+      border: '1px solid #3D3A5E',
+      borderRadius: 10,
+      display: 'flex', alignItems: 'center',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+      overflow: 'hidden',
+      width: popoverW,
+    }}>
+      {btn('Save note', onSaveNote)}
+      <div style={{ width: 1, height: 20, background: '#2E2A4E' }} />
+      {btn('Add context', onAddContext)}
+      <div style={{ width: 1, height: 20, background: '#2E2A4E' }} />
+      {btn('Go deeper', onGoDeeper, 'var(--indigo)')}
+    </div>
+  )
+}
+
+// Modal for Save note / Add context actions
+function HighlightModal({
+  type, text, onSave, onClose,
+}: {
+  type: 'note' | 'context'
+  text: string
+  onSave: (value: string) => Promise<void>
+  onClose: () => void
+}) {
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const isNote = type === 'note'
+
+  async function handleSave() {
+    if (!value.trim()) return
+    setSaving(true)
+    await onSave(value.trim())
+    setSaving(false)
+    onClose()
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1001,
+      background: 'rgba(0,0,0,0.7)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 24,
+    }}
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{
+        background: '#0E0C1A', borderRadius: 16,
+        border: '1px solid #3D3A5E',
+        padding: 24, width: '100%', maxWidth: 440,
+      }}>
+        <p className="text-xs font-semibold tracking-widest uppercase mb-3" style={{ color: 'var(--stone)' }}>
+          {isNote ? 'Save note' : 'Add context'}
+        </p>
+        {/* Quoted highlight */}
+        <p className="text-xs leading-relaxed mb-4 px-3 py-2 rounded-lg" style={{
+          color: 'var(--stone)', background: '#1A1830',
+          borderLeft: '2px solid #4A4580', fontStyle: 'italic',
+        }}>
+          "{text.length > 140 ? text.slice(0, 140) + '…' : text}"
+        </p>
+        <p className="text-xs mb-3" style={{ color: 'var(--stone)' }}>
+          {isNote
+            ? 'Your personal reflection. Not shared with anyone.'
+            : 'Tell the AI what it missed or misread. This will inform future sessions.'}
+        </p>
+        <textarea
+          autoFocus
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          placeholder={isNote
+            ? 'This resonated because…'
+            : 'e.g. I answered that way because I got lucky — my situation is actually a net positive.'}
+          rows={4}
+          className="w-full text-sm rounded-lg px-3 py-2.5 mb-4 resize-none"
+          style={{
+            background: 'var(--charcoal)', color: 'var(--parchment)',
+            border: '1px solid #3D3A36', outline: 'none',
+          }}
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={handleSave}
+            disabled={saving || !value.trim()}
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+            style={{
+              background: value.trim() ? 'var(--indigo)' : '#2E2B27',
+              color: value.trim() ? '#fff' : 'var(--stone)',
+              border: 'none', cursor: value.trim() ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-5 py-2.5 rounded-xl text-sm"
+            style={{ background: 'none', border: '1px solid #3D3A36', color: 'var(--stone)', cursor: 'pointer' }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Bottom panel for "Go deeper" concept exploration
+function ConceptPanel({
+  text, section, onClose,
+}: {
+  text: string
+  section: string
+  onClose: () => void
+}) {
+  const [concept, setConcept] = useState('')
+  const [explanation, setExplanation] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/highlight-concept', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, section }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        setConcept(data.concept)
+        setExplanation(data.explanation)
+        setLoading(false)
+      })
+      .catch(() => { setError(true); setLoading(false) })
+  }, [text, section])
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000,
+      background: '#0E0C1A', borderTop: '1px solid #3D3A5E',
+      padding: '20px 24px 28px',
+      maxHeight: '50vh', overflow: 'auto',
+    }}>
+      <div className="max-w-prose mx-auto">
+        <div className="flex items-start justify-between mb-4">
+          <p className="text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--stone)' }}>
+            Concept
+          </p>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--stone)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>
+            ×
+          </button>
+        </div>
+        {/* Quote */}
+        <p className="text-xs leading-relaxed mb-4 px-3 py-2 rounded-lg" style={{
+          color: 'var(--stone)', background: '#1A1830',
+          borderLeft: '2px solid #4A4580', fontStyle: 'italic',
+        }}>
+          "{text.length > 120 ? text.slice(0, 120) + '…' : text}"
+        </p>
+        {loading && (
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--indigo)', borderTopColor: 'transparent' }} />
+            <p className="text-sm" style={{ color: 'var(--stone)' }}>Identifying concept…</p>
+          </div>
+        )}
+        {error && <p className="text-sm" style={{ color: 'var(--stone)' }}>Could not identify concept. Try again.</p>}
+        {!loading && !error && (
+          <>
+            <p className="text-base font-semibold mb-2" style={{ color: 'var(--parchment)' }}>{concept}</p>
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--stone)' }}>{explanation}</p>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -192,12 +560,53 @@ function ScoreBars({ scores, answeredIds }: { scores: Scores; answeredIds: Set<s
 // ── Results screen ─────────────────────────────────────────────────────────
 
 function ResultsScreen({
-  analysis, scores, answeredIds, dayNumber, isNewResult,
+  analysis, scores, answeredIds, dayNumber, isNewResult, savedToDb, saveError,
+  languageMode, onLanguageModeChange, userId, supabase,
 }: {
-  analysis: string; scores: Scores; answeredIds: Set<string>; dayNumber: number; isNewResult: boolean
+  analysis: string
+  scores: Scores
+  answeredIds: Set<string>
+  dayNumber: number
+  isNewResult: boolean
+  savedToDb: boolean
+  saveError: string | null
+  languageMode: LanguageMode
+  onLanguageModeChange: (mode: LanguageMode) => void
+  userId: string
+  supabase: ReturnType<typeof createClient>
 }) {
   const sections = parseAnalysis(analysis)
   const [bookmarked, setBookmarked] = useState<Set<string>>(new Set())
+
+  // Highlight system state
+  const [activeSelection, setActiveSelection] = useState<ActiveSelection | null>(null)
+  const [highlightModal, setHighlightModal] = useState<{ type: 'note' | 'context'; selection: ActiveSelection } | null>(null)
+  const [conceptPanel, setConceptPanel] = useState<{ text: string; section: string } | null>(null)
+
+  function handleSectionMouseUp(header: string) {
+    setTimeout(() => {
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed) return
+      const text = sel.toString().trim()
+      if (text.length < 15) return
+      const range = sel.getRangeAt(0)
+      const rect = range.getBoundingClientRect()
+      setActiveSelection({ text, rect, section: header })
+    }, 0)
+  }
+
+  async function saveHighlight(
+    selection: ActiveSelection,
+    fields: { note?: string; context?: string; concept_name?: string; concept_text?: string }
+  ) {
+    await supabase.schema('substrata').from('highlights').insert({
+      user_id: userId,
+      day_number: dayNumber,
+      section: selection.section,
+      text: selection.text,
+      ...fields,
+    })
+  }
 
   return (
     <div className="min-h-screen px-6 py-12" style={{ background: 'var(--obsidian)' }}>
@@ -210,9 +619,46 @@ function ResultsScreen({
             ← All sessions
           </Link>
         </div>
-        <h1 className="text-2xl font-semibold mb-10" style={{ color: 'var(--parchment)' }}>
+        <h1 className="text-2xl font-semibold mb-6" style={{ color: 'var(--parchment)' }}>
           {isNewResult ? 'Here\'s what your answers reveal.' : `Your Day ${dayNumber} results.`}
         </h1>
+
+        {/* Language mode selector */}
+        <div className="mb-8 flex items-center gap-2">
+          <span className="text-xs shrink-0" style={{ color: 'var(--stone)' }}>Reading mode</span>
+          <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'var(--charcoal)' }}>
+            {(Object.keys(LANGUAGE_LABELS) as LanguageMode[]).map(mode => (
+              <button
+                key={mode}
+                onClick={() => onLanguageModeChange(mode)}
+                className="px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+                style={{
+                  background: languageMode === mode ? 'var(--indigo)' : 'transparent',
+                  color: languageMode === mode ? '#fff' : 'var(--stone)',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+                title={LANGUAGE_LABELS[mode].desc}
+              >
+                {LANGUAGE_LABELS[mode].label}
+              </button>
+            ))}
+          </div>
+          {languageMode !== 'direct' && (
+            <span className="text-xs" style={{ color: 'var(--stone)', opacity: 0.6 }}>
+              Next session will use this mode
+            </span>
+          )}
+        </div>
+
+        {/* Save warning banner — only shown when DB write failed */}
+        {!savedToDb && saveError && (
+          <div className="mb-8 px-4 py-3 rounded-xl text-sm leading-relaxed"
+            style={{ background: '#2E1A1A', color: '#C47A5A', border: '1px solid #5A2E2E' }}>
+            <strong style={{ color: '#E08060' }}>Results not saved.</strong>{' '}
+            {saveError}
+          </div>
+        )}
 
         <ScoreBars scores={scores} answeredIds={answeredIds} />
 
@@ -248,7 +694,20 @@ function ResultsScreen({
                   Marked as a focus area. Future sessions will prioritise questions in this dimension.
                 </div>
               )}
-              {content.split('\n\n').filter(p => p.trim()).map((para, i) => renderParagraph(para.trim(), i))}
+              {/* Selectable content area */}
+              <div
+                onMouseUp={() => handleSectionMouseUp(header)}
+                onTouchEnd={() => handleSectionMouseUp(header)}
+                style={{ cursor: 'text' }}
+              >
+                {content.split('\n\n').filter(p => p.trim()).map((para, i) => renderParagraph(para.trim(), i))}
+              </div>
+              <SectionAnnotation
+                header={header}
+                dayNumber={dayNumber}
+                userId={userId}
+                supabase={supabase}
+              />
             </div>
           )
         })}
@@ -305,11 +764,18 @@ function ResultsScreen({
             <p className="text-sm mb-4" style={{ color: 'var(--parchment)' }}>
               Day {dayNumber + 1} explores a new dimension without repeating what Day {dayNumber} already found.
             </p>
-            <Link href={`/test/day/${dayNumber + 1}`}
-              className="block w-full py-3 rounded-xl text-sm font-semibold text-center"
-              style={{ background: 'var(--indigo)', color: '#fff', textDecoration: 'none' }}>
-              Continue to Day {dayNumber + 1} →
-            </Link>
+            {savedToDb ? (
+              <Link href={`/test/day/${dayNumber + 1}`}
+                className="block w-full py-3 rounded-xl text-sm font-semibold text-center"
+                style={{ background: 'var(--indigo)', color: '#fff', textDecoration: 'none' }}>
+                Continue to Day {dayNumber + 1} →
+              </Link>
+            ) : (
+              <div className="w-full py-3 rounded-xl text-sm font-semibold text-center"
+                style={{ background: '#2E2B27', color: 'var(--stone)', cursor: 'not-allowed' }}>
+                Results must save before continuing
+              </div>
+            )}
           </div>
         )}
         {dayNumber === 8 && (
@@ -326,6 +792,43 @@ function ResultsScreen({
           </Link>
         </div>
       </div>
+
+      {/* Highlight popover — appears on text selection */}
+      {activeSelection && !highlightModal && !conceptPanel && (
+        <HighlightPopover
+          selection={activeSelection}
+          onDismiss={() => setActiveSelection(null)}
+          onSaveNote={() => setHighlightModal({ type: 'note', selection: activeSelection })}
+          onAddContext={() => setHighlightModal({ type: 'context', selection: activeSelection })}
+          onGoDeeper={() => {
+            setConceptPanel({ text: activeSelection.text, section: activeSelection.section })
+            setActiveSelection(null)
+            window.getSelection()?.removeAllRanges()
+          }}
+        />
+      )}
+
+      {/* Save note / Add context modal */}
+      {highlightModal && (
+        <HighlightModal
+          type={highlightModal.type}
+          text={highlightModal.selection.text}
+          onClose={() => { setHighlightModal(null); setActiveSelection(null) }}
+          onSave={async value => {
+            const field = highlightModal.type === 'note' ? { note: value } : { context: value }
+            await saveHighlight(highlightModal.selection, field)
+          }}
+        />
+      )}
+
+      {/* Go deeper — concept panel */}
+      {conceptPanel && (
+        <ConceptPanel
+          text={conceptPanel.text}
+          section={conceptPanel.section}
+          onClose={() => setConceptPanel(null)}
+        />
+      )}
     </div>
   )
 }
@@ -357,6 +860,8 @@ export default function DayQuestionnaire({
   existingReport,
   existingScores,
   allAnsweredIds,
+  languageMode: initialLanguageMode,
+  userContext,
 }: {
   dayNumber: number
   userId: string
@@ -365,6 +870,8 @@ export default function DayQuestionnaire({
   existingReport: string | null
   existingScores: Record<string, number> | null
   allAnsweredIds: string[]
+  languageMode: LanguageMode
+  userContext: string | null
 }) {
   const supabase = useMemo(() => createClient(), [])
 
@@ -382,8 +889,19 @@ export default function DayQuestionnaire({
   const [cumulativeIds, setCumulativeIds] = useState<Set<string>>(
     existingReport ? new Set(allAnsweredIds) : new Set<string>()
   )
-  const [error, setError] = useState<string | null>(null)
+  const [savedToDb, setSavedToDb] = useState(!!existingReport)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [languageMode, setLanguageMode] = useState<LanguageMode>(initialLanguageMode)
+
+  const handleLanguageModeChange = useCallback(async (mode: LanguageMode) => {
+    setLanguageMode(mode)
+    // Upsert profile with new language mode
+    await supabase
+      .schema('substrata')
+      .from('profiles')
+      .upsert({ id: userId, language_mode: mode }, { onConflict: 'id' })
+  }, [supabase, userId])
 
   const currentQuestion = questions[currentIdx]
   const progress = (currentIdx / questions.length) * 100
@@ -395,7 +913,7 @@ export default function DayQuestionnaire({
     [phase, cumulativeIds, answers]
   )
 
-  const submitAnalysis = useCallback(async (finalAnswers: Answer[]) => {
+  const submitAnalysis = useCallback(async (finalAnswers: Answer[], currentLanguageMode: LanguageMode = languageMode) => {
     setSaveError(null)
 
     // 1. Upsert session
@@ -416,10 +934,15 @@ export default function DayQuestionnaire({
       .single()
 
     if (sessionErr || !session) {
-      setSaveError('Could not save session. Analysis will run but results won\'t be stored.')
+      const isMissing = sessionErr?.message?.includes('does not exist') || sessionErr?.code === '42P01'
+      setSaveError(
+        isMissing
+          ? 'Database tables not set up yet. Run migration 002 in Supabase SQL Editor, then retry.'
+          : 'Could not save session. Your analysis will appear below but results won\'t persist.'
+      )
     }
 
-    // 2. Save question responses
+    // 2. Save question responses (non-blocking — failures logged silently)
     if (session) {
       await supabase.schema('substrata').from('question_responses').insert(
         finalAnswers.map(a => ({
@@ -468,7 +991,7 @@ export default function DayQuestionnaire({
       .neq('day_number', dayNumber)
       .order('day_number')
 
-    // 5. Stream analysis
+    // 5. Stream analysis from Claude
     setPhase('analyzing')
 
     const responses = finalAnswers.map(a => ({
@@ -486,10 +1009,12 @@ export default function DayQuestionnaire({
           dayNumber,
           analysisSections,
           previousReports: prevReports?.map(r => ({ day: r.day_number, text: r.report_text })),
+          languageMode: currentLanguageMode,
+          userContext,
         }),
       })
 
-      if (!res.ok || !res.body) throw new Error()
+      if (!res.ok || !res.body) throw new Error('Analysis request failed')
       setPhase('results')
 
       const reader = res.body.getReader()
@@ -502,21 +1027,22 @@ export default function DayQuestionnaire({
         setAnalysis(fullText)
       }
 
-      // 6. Save report
+      // 6. Save report — marks savedToDb on success
       if (session) {
-        await supabase.schema('substrata').from('session_reports').insert({
+        const { error: reportErr } = await supabase.schema('substrata').from('session_reports').insert({
           session_id: session.id,
           user_id: userId,
           day_number: dayNumber,
           report_text: fullText,
           scores: computed,
         })
+        if (!reportErr) setSavedToDb(true)
       }
     } catch {
-      setError('Something went wrong. Please try again.')
+      setError('Something went wrong generating your analysis. Please try again.')
       setPhase('questions')
     }
-  }, [supabase, userId, dayNumber, analysisSections])
+  }, [supabase, userId, dayNumber, analysisSections, languageMode])
 
   const handleContinue = useCallback(() => {
     if (!selectedOption || !currentQuestion) return
@@ -528,13 +1054,13 @@ export default function DayQuestionnaire({
       section: currentQuestion.section,
       dimension: currentQuestion.dimension,
     }
-    const newAnswers = [...answers, answer]
-    setAnswers(newAnswers)
     setSelectedOption(null)
     if (currentIdx === questions.length - 1) {
-      submitAnalysis(newAnswers)
+      // Don't add to answers state before submitAnalysis — prevents duplicate answer on retry
+      submitAnalysis([...answers, answer], languageMode)
     } else {
-      setCurrentIdx(currentIdx + 1)
+      setAnswers(prev => [...prev, answer])
+      setCurrentIdx(prev => prev + 1)
     }
   }, [selectedOption, currentIdx, currentQuestion, answers, questions, submitAnalysis])
 
@@ -553,8 +1079,17 @@ export default function DayQuestionnaire({
   if (phase === 'analyzing') return <AnalyzingScreen dayNumber={dayNumber} />
   if (phase === 'results') {
     return <ResultsScreen
-      analysis={analysis} scores={scores} answeredIds={answeredIds}
-      dayNumber={dayNumber} isNewResult={!existingReport}
+      analysis={analysis}
+      scores={scores}
+      answeredIds={answeredIds}
+      dayNumber={dayNumber}
+      isNewResult={!existingReport}
+      savedToDb={savedToDb}
+      saveError={saveError}
+      languageMode={languageMode}
+      onLanguageModeChange={handleLanguageModeChange}
+      userId={userId}
+      supabase={supabase}
     />
   }
   if (!currentQuestion) return null
@@ -602,7 +1137,6 @@ export default function DayQuestionnaire({
         </div>
 
         {error && <p className="mt-5 text-sm" style={{ color: 'var(--terracotta)' }}>{error}</p>}
-        {saveError && <p className="mt-3 text-xs" style={{ color: 'var(--stone)' }}>{saveError}</p>}
       </div>
 
       <div className="px-6 pb-8 pt-2 flex items-center justify-between gap-4">

@@ -61,9 +61,20 @@ export default async function TestDayPage({ params }: { params: { n: string } })
     allAnsweredIds = (answeredRes.data ?? []).map((r: { question_id: string }) => r.question_id)
   }
 
+  // Fetch profile preferences and demographic context
+  const { data: profile } = await supabase
+    .schema('substrata')
+    .from('profiles')
+    .select('language_mode, relationship_status, life_focus, age_range, gender_identity, has_kids')
+    .eq('id', user.id)
+    .maybeSingle()
+
   const dayQuestionIds = DAY_QUESTIONS[dayNumber]
   const dayQuestions = QUESTIONS.filter(q => dayQuestionIds.includes(q.id))
   const analysisSections = DAY_ANALYSIS_HEADERS[dayNumber]
+
+  // Build demographic context string for AI prompt
+  const userContext = profile ? buildUserContext(profile) : null
 
   return (
     <DayQuestionnaire
@@ -74,6 +85,45 @@ export default async function TestDayPage({ params }: { params: { n: string } })
       existingReport={existingReport}
       existingScores={existingScores}
       allAnsweredIds={allAnsweredIds}
+      languageMode={(profile?.language_mode as 'plain' | 'direct' | 'clinical') ?? 'direct'}
+      userContext={userContext}
     />
   )
+}
+
+function buildUserContext(profile: {
+  relationship_status?: string | null
+  life_focus?: string | null
+  age_range?: string | null
+  gender_identity?: string | null
+  has_kids?: boolean | null
+}): string | null {
+  const lines: string[] = []
+
+  const statusLabels: Record<string, string> = {
+    single_looking:     'Single and looking for a partner',
+    single_not_looking: 'Single, not currently looking',
+    partnered:          'In a relationship',
+    married:            'Married',
+    open:               'In an open / ENM relationship',
+    complicated:        'Relationship status: complicated',
+    prefer_not:         'Relationship status: not specified',
+  }
+  const focusLabels: Record<string, string> = {
+    self_development:    'self-understanding and personal growth',
+    finding_partner:     'finding the right partner',
+    relationship_growth: 'growing within their current relationship',
+    career:              'career and personal goals',
+    other:               'personal goals (unspecified)',
+  }
+
+  if (profile.relationship_status) lines.push(`Relationship status: ${statusLabels[profile.relationship_status] ?? profile.relationship_status}`)
+  if (profile.life_focus)         lines.push(`Primary focus: ${focusLabels[profile.life_focus] ?? profile.life_focus}`)
+  if (profile.age_range)          lines.push(`Age range: ${profile.age_range}`)
+  if (profile.gender_identity)    lines.push(`Gender identity: ${profile.gender_identity}`)
+  if (profile.has_kids != null)   lines.push(`Has children: ${profile.has_kids ? 'Yes' : 'No'}`)
+
+  if (lines.length === 0) return null
+
+  return lines.join('\n')
 }

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { DAY_LABELS, CONFIDENCE_BY_DAY } from './questions'
+import DevResetButton from './dev-reset-button'
 
 const ALLOWED_EMAIL = 'hect0rchicas@hotmail.com'
 
@@ -93,16 +94,25 @@ export default async function TestHubPage() {
 
   if (!user || user.email !== ALLOWED_EMAIL) redirect('/dashboard')
 
-  const { data: rawSessions } = await supabase
-    .schema('substrata')
-    .from('test_sessions')
-    .select('day_number, completed_at')
-    .eq('user_id', user.id)
-    .order('day_number')
+  const [{ data: rawSessions }, { data: profile }] = await Promise.all([
+    supabase
+      .schema('substrata')
+      .from('test_sessions')
+      .select('day_number, completed_at')
+      .eq('user_id', user.id)
+      .order('day_number'),
+    supabase
+      .schema('substrata')
+      .from('profiles')
+      .select('context_set')
+      .eq('id', user.id)
+      .maybeSingle(),
+  ])
 
   const sessions: Session[] = rawSessions ?? []
   const sessionByDay = Object.fromEntries(sessions.map(s => [s.day_number, s]))
   const confidence = confidenceScore(sessions)
+  const contextSet = !!profile?.context_set
 
   return (
     <div className="min-h-screen px-6 py-12" style={{ background: 'var(--obsidian)' }}>
@@ -142,6 +152,25 @@ export default async function TestHubPage() {
           </p>
         </div>
 
+        {/* Setup prompt — shown until context is set */}
+        {!contextSet && (
+          <Link
+            href="/test/setup"
+            className="flex items-center justify-between mb-6 px-4 py-3 rounded-xl"
+            style={{ background: '#1E1C2E', border: '1px solid #3D3A5E', textDecoration: 'none' }}
+          >
+            <div>
+              <p className="text-sm font-medium mb-0.5" style={{ color: 'var(--parchment)' }}>
+                Personalise your framing
+              </p>
+              <p className="text-xs" style={{ color: 'var(--stone)' }}>
+                Relationship status and goals shape how results are interpreted.
+              </p>
+            </div>
+            <span className="text-xs ml-4 shrink-0" style={{ color: 'var(--indigo)' }}>Set up →</span>
+          </Link>
+        )}
+
         {/* Day cards */}
         <div className="space-y-4">
           {[1, 2, 3, 4, 5, 6, 7, 8].map(day => (
@@ -157,6 +186,13 @@ export default async function TestHubPage() {
         <p className="mt-8 text-xs text-center leading-relaxed" style={{ color: 'var(--stone)' }}>
           96 questions across 8 sections — personality, attachment, values, conflict, emotional intelligence, life architecture, physical health, and moral foundations.
         </p>
+
+        {/* Dev-only reset — only visible to the test account */}
+        {user.email === ALLOWED_EMAIL && (
+          <div className="mt-8 pt-6 border-t flex justify-center" style={{ borderColor: '#1E1C1A' }}>
+            <DevResetButton />
+          </div>
+        )}
       </div>
     </div>
   )
