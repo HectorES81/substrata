@@ -1,6 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+// Output tokens cap ≈ $1.00 at claude-sonnet-4-6 pricing ($15 / 1M output tokens)
+const OUTPUT_TOKEN_CAP = 66_000
 
 // ── PROMPT CONFIGURATION ───────────────────────────────────────────────────
 //
@@ -292,6 +297,24 @@ ${formatted.trim()}`
 const DEFAULT_SECTIONS = ['CORE PERSONALITY', 'HOW YOU ATTACH', 'WHAT YOU VALUE', 'IN RELATIONSHIPS']
 
 export async function POST(request: Request) {
+  // Auth — must be a logged-in user
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Token cap check
+  const { data: profile } = await supabase
+    .schema('substrata')
+    .from('profiles')
+    .select('ai_tokens_used')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const tokensUsed = profile?.ai_tokens_used ?? 0
+  if (tokensUsed >= OUTPUT_TOKEN_CAP) {
+    return Response.json({ error: 'token_limit_reached' }, { status: 402 })
+  }
+
   const { responses, dayNumber = 1, analysisSections, previousReports, languageMode, userContext } = await request.json() as {
     responses: ResponseItem[]
     dayNumber?: number
@@ -310,17 +333,31 @@ export async function POST(request: Request) {
     messages: [{ role: 'user', content: buildPrompt(responses, dayNumber, sections, previousReports, languageMode ?? 'direct', userContext) }],
   })
 
+  let outputTokens = 0
+  const userId = user.id
+  const prevTokensUsed = tokensUsed
+
   const readable = new ReadableStream({
     async start(controller) {
       for await (const event of stream) {
-        if (
-          event.type === 'content_block_delta' &&
-          event.delta.type === 'text_delta'
-        ) {
+        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           controller.enqueue(new TextEncoder().encode(event.delta.text))
+        }
+        if (event.type === 'message_delta') {
+          outputTokens = event.usage.output_tokens
         }
       }
       controller.close()
+
+      // Increment token count after stream completes
+      if (outputTokens > 0) {
+        const service = createServiceClient()
+        await service
+          .schema('substrata')
+          .from('profiles')
+          .update({ ai_tokens_used: prevTokensUsed + outputTokens })
+          .eq('id', userId)
+      }
     },
   })
 

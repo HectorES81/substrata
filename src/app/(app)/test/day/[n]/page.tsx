@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 import { QUESTIONS, DAY_QUESTIONS, DAY_ANALYSIS_HEADERS } from '../../questions'
 import DayQuestionnaire from './day-questionnaire'
 
-const ALLOWED_EMAIL = 'hect0rchicas@hotmail.com'
 const TOTAL_DAYS = 8
 
 export default async function TestDayPage({ params }: { params: { n: string } }) {
@@ -12,7 +11,7 @@ export default async function TestDayPage({ params }: { params: { n: string } })
 
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || user.email !== ALLOWED_EMAIL) redirect('/dashboard')
+  if (!user) redirect('/dashboard')
 
   // Check previous day is complete before unlocking this one
   if (dayNumber > 1) {

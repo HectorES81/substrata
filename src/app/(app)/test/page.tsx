@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { DAY_LABELS, CONFIDENCE_BY_DAY } from './questions'
 import DevResetButton from './dev-reset-button'
 
-const ALLOWED_EMAIL = 'hect0rchicas@hotmail.com'
+const ADMIN_EMAIL = 'hect0rchicas@hotmail.com'
 
 type Session = { day_number: number; completed_at: string | null }
 
@@ -92,7 +92,7 @@ export default async function TestHubPage() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.email !== ALLOWED_EMAIL) redirect('/dashboard')
+  if (!user) redirect('/dashboard')
 
   const [{ data: rawSessions }, { data: profile }] = await Promise.all([
     supabase
@@ -188,7 +188,7 @@ export default async function TestHubPage() {
         </p>
 
         {/* Dev-only reset — only visible to the test account */}
-        {user.email === ALLOWED_EMAIL && (
+        {user.email === ADMIN_EMAIL && (
           <div className="mt-8 pt-6 border-t flex justify-center" style={{ borderColor: '#1E1C1A' }}>
             <DevResetButton />
           </div>

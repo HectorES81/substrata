@@ -334,7 +334,9 @@ function SectionAnnotation({
 
 type ActiveSelection = { text: string; rect: DOMRect; section: string }
 
-// Floating toolbar that appears on text selection
+// Bottom-anchored action bar that appears on text selection.
+// Fixed to the viewport bottom so it never conflicts with the browser's
+// native context menu (which appears near the selection on mobile).
 function HighlightPopover({
   selection, onSaveNote, onAddContext, onGoDeeper, onDismiss,
 }: {
@@ -345,32 +347,32 @@ function HighlightPopover({
   onDismiss: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const { rect } = selection
 
-  const popoverW = 228
-  const left = Math.max(8, Math.min(
-    rect.left + rect.width / 2 - popoverW / 2,
-    (typeof window !== 'undefined' ? window.innerWidth : 400) - popoverW - 8
-  ))
-  const top = rect.top > 72 ? rect.top - 52 : rect.bottom + 10
-
-  // Dismiss on outside mousedown
   useEffect(() => {
-    function onDown(e: MouseEvent) {
+    function onDown(e: MouseEvent | TouchEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) onDismiss()
     }
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('touchstart', onDown)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('touchstart', onDown)
+    }
   }, [onDismiss])
+
+  const snippet = selection.text.length > 55
+    ? selection.text.slice(0, 55) + '…'
+    : selection.text
 
   const btn = (label: string, onClick: () => void, accent?: string) => (
     <button
       onMouseDown={e => { e.preventDefault(); onClick() }}
       style={{
-        background: 'none', border: 'none', cursor: 'pointer',
+        flex: 1, background: 'none',
+        border: '1px solid #3D3A5E', borderRadius: 10,
+        cursor: 'pointer',
         color: accent ?? 'var(--parchment)',
-        fontSize: 12, fontWeight: 500, padding: '6px 10px',
-        whiteSpace: 'nowrap',
+        fontSize: 13, fontWeight: 500, padding: '10px 8px',
       }}
     >
       {label}
@@ -379,20 +381,24 @@ function HighlightPopover({
 
   return (
     <div ref={ref} style={{
-      position: 'fixed', top, left, zIndex: 1000,
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000,
       background: '#0E0C1A',
-      border: '1px solid #3D3A5E',
-      borderRadius: 10,
-      display: 'flex', alignItems: 'center',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-      overflow: 'hidden',
-      width: popoverW,
+      borderTop: '1px solid #3D3A5E',
+      padding: '12px 16px calc(20px + env(safe-area-inset-bottom, 0px))',
+      boxShadow: '0 -8px 24px rgba(0,0,0,0.5)',
     }}>
-      {btn('Save note', onSaveNote)}
-      <div style={{ width: 1, height: 20, background: '#2E2A4E' }} />
-      {btn('Add context', onAddContext)}
-      <div style={{ width: 1, height: 20, background: '#2E2A4E' }} />
-      {btn('Go deeper', onGoDeeper, 'var(--indigo)')}
+      <p style={{
+        color: 'var(--stone)', fontSize: 11, marginBottom: 10,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        fontStyle: 'italic',
+      }}>
+        "{snippet}"
+      </p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {btn('Save note', onSaveNote)}
+        {btn('Add context', onAddContext)}
+        {btn('Go deeper →', onGoDeeper, 'var(--indigo)')}
+      </div>
     </div>
   )
 }
@@ -1014,6 +1020,7 @@ export default function DayQuestionnaire({
         }),
       })
 
+      if (res.status === 402) throw new Error('token_limit')
       if (!res.ok || !res.body) throw new Error('Analysis request failed')
       setPhase('results')
 
@@ -1038,8 +1045,12 @@ export default function DayQuestionnaire({
         })
         if (!reportErr) setSavedToDb(true)
       }
-    } catch {
-      setError('Something went wrong generating your analysis. Please try again.')
+    } catch (err) {
+      if (err instanceof Error && err.message === 'token_limit') {
+        setError('Your free AI analysis allowance has been used up. Reach out to get more access.')
+      } else {
+        setError('Something went wrong generating your analysis. Please try again.')
+      }
       setPhase('questions')
     }
   }, [supabase, userId, dayNumber, analysisSections, languageMode])
@@ -1095,7 +1106,7 @@ export default function DayQuestionnaire({
   if (!currentQuestion) return null
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--obsidian)' }}>
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--obsidian)', paddingBottom: 88 }}>
       <div className="w-full h-0.5" style={{ background: '#2E2B27' }}>
         <div className="h-full transition-all duration-500" style={{ width: `${progress}%`, background: 'var(--indigo)' }} />
       </div>
@@ -1139,13 +1150,20 @@ export default function DayQuestionnaire({
         {error && <p className="mt-5 text-sm" style={{ color: 'var(--terracotta)' }}>{error}</p>}
       </div>
 
-      <div className="px-6 pb-8 pt-2 flex items-center justify-between gap-4">
+      {/* Fixed bottom nav — always reachable without scrolling */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
+        display: 'flex', alignItems: 'center', gap: 16,
+        padding: 'calc(12px + env(safe-area-inset-bottom, 0px)) 24px 24px',
+        background: 'var(--obsidian)',
+        borderTop: '1px solid #2E2B27',
+      }}>
         <button onClick={handleBack} disabled={currentIdx === 0}
           style={{
             background: 'none', border: 'none',
             cursor: currentIdx === 0 ? 'default' : 'pointer',
             color: currentIdx === 0 ? 'transparent' : 'var(--stone)',
-            fontSize: 14, padding: '8px 0',
+            fontSize: 14, padding: '8px 0', flexShrink: 0,
           }}>
           ← Back
         </button>
@@ -1156,7 +1174,6 @@ export default function DayQuestionnaire({
             color: selectedOption ? '#fff' : 'var(--stone)',
             border: 'none',
             cursor: selectedOption ? 'pointer' : 'not-allowed',
-            maxWidth: 240, marginLeft: 'auto',
           }}>
           {currentIdx === questions.length - 1 ? 'See results →' : 'Continue →'}
         </button>

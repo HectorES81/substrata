@@ -30,7 +30,13 @@ const FOCUS_OPTIONS = [
   { value: 'other',                 label: 'Something else' },
 ]
 
-const AGE_OPTIONS = ['18–24', '25–34', '35–44', '45–54', '55+']
+const AGE_OPTIONS = [
+  { value: '18-24', label: '18–24' },
+  { value: '25-34', label: '25–34' },
+  { value: '35-44', label: '35–44' },
+  { value: '45-54', label: '45–54' },
+  { value: '55+',   label: '55+' },
+]
 
 function RadioGroup({
   label, options, value, onChange,
@@ -157,18 +163,18 @@ export default function SetupForm({
           <div className="flex flex-wrap gap-2">
             {AGE_OPTIONS.map(age => (
               <button
-                key={age}
+                key={age.value}
                 type="button"
-                onClick={() => setForm(f => ({ ...f, age_range: f.age_range === age ? null : age }))}
+                onClick={() => setForm(f => ({ ...f, age_range: f.age_range === age.value ? null : age.value }))}
                 className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 style={{
-                  background: form.age_range === age ? 'var(--indigo)' : 'var(--charcoal)',
-                  color: form.age_range === age ? '#fff' : 'var(--parchment)',
-                  border: `1.5px solid ${form.age_range === age ? 'var(--indigo)' : '#3D3A36'}`,
+                  background: form.age_range === age.value ? 'var(--indigo)' : 'var(--charcoal)',
+                  color: form.age_range === age.value ? '#fff' : 'var(--parchment)',
+                  border: `1.5px solid ${form.age_range === age.value ? 'var(--indigo)' : '#3D3A36'}`,
                   cursor: 'pointer',
                 }}
               >
-                {age}
+                {age.label}
               </button>
             ))}
           </div>
